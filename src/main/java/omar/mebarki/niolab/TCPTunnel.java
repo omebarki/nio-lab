@@ -1,18 +1,17 @@
 package omar.mebarki.niolab;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.*;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 
 public class TCPTunnel {
     private int localPort;
     private InetSocketAddress destAddr;
-    BiMap<SelectableChannel, SelectableChannel> conectionsCouples = HashBiMap.create();
 
     public static void main(String[] args) throws Exception {
         if (args.length != 3) {
@@ -57,20 +56,21 @@ public class TCPTunnel {
 
     private void handleIncomingData(SelectionKey key) throws Exception {
         SocketChannel inputChannel = (SocketChannel) key.channel();
-        SocketChannel outputChannel = (SocketChannel) key.attachment();
+        SocketChannel outputChannel = (SocketChannel) ((SelectionKey) key.attachment()).channel();
         ByteBuffer buffer = ByteBuffer.allocate(1024);
         int redBytes = 0;
         while ((redBytes = inputChannel.read(buffer)) > 0) {
             buffer.flip();
             while (buffer.hasRemaining()) {
-                int write = outputChannel.write(buffer);
-                System.out.println(write);
+                outputChannel.write(buffer);
             }
 
         }
         if (redBytes < 0) {
             inputChannel.close();
             key.cancel();
+            outputChannel.close();
+            ((SelectionKey) key.attachment()).cancel();
         }
     }
 
@@ -78,14 +78,15 @@ public class TCPTunnel {
         SocketChannel clientSocket = serverSocket.accept();
         clientSocket.configureBlocking(false);
         SelectionKey clientSelectionKey = clientSocket.register(key.selector(), SelectionKey.OP_READ);
+        System.out.println("New Client " + clientSocket.toString());
 
         SocketChannel otherSideSocket = SocketChannel.open(destAddr);
         otherSideSocket.configureBlocking(false);
         SelectionKey otherSideSelectionKey = otherSideSocket.register(key.selector(), SelectionKey.OP_READ);
 
 
-        clientSelectionKey.attach(otherSideSocket);
-        otherSideSelectionKey.attach(clientSocket);
+        clientSelectionKey.attach(otherSideSelectionKey);
+        otherSideSelectionKey.attach(clientSelectionKey);
 
     }
 
@@ -96,4 +97,5 @@ public class TCPTunnel {
         serverSocket.configureBlocking(false);
         return serverSocket;
     }
+
 }
